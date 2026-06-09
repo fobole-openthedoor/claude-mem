@@ -10,6 +10,7 @@ const VERSION_CHECK_LOG_PREFIX = '[version-check]';
 const BUN_INSTALL_ARGS = Object.freeze(['install', '--production']);
 const BUN_INSTALL_TIMEOUT_MS = 120_000;
 const NODE_MODULES_DIRNAME = 'node_modules';
+const SETTINGS_PATH = join(homedir(), '.claude-mem', 'settings.json');
 
 function findBun() {
   const pathCheck = IS_WINDOWS
@@ -174,20 +175,52 @@ function readInstallMarkerVersion(markerPath) {
   }
 }
 
+function readUserSettings() {
+  if (!existsSync(SETTINGS_PATH)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(SETTINGS_PATH, 'utf-8'));
+    return raw && typeof raw === 'object' && raw.env && typeof raw.env === 'object'
+      ? raw.env
+      : raw;
+  } catch {
+    return null;
+  }
+}
+
+function hasConfiguredServerBetaRuntime() {
+  const settings = readUserSettings();
+  if (!settings || typeof settings !== 'object') return false;
+  const runtime = String(settings.CLAUDE_MEM_RUNTIME ?? '').trim().toLowerCase();
+  return runtime === 'server-beta'
+    && String(settings.CLAUDE_MEM_SERVER_BETA_URL ?? '').trim().length > 0
+    && String(settings.CLAUDE_MEM_SERVER_BETA_API_KEY ?? '').trim().length > 0
+    && String(settings.CLAUDE_MEM_SERVER_BETA_PROJECT_ID ?? '').trim().length > 0;
+}
+
+function emitRepairHint(reason) {
+  if (hasConfiguredServerBetaRuntime()) {
+    return;
+  }
+  emitUpgradeHint(
+    `claude-mem: ${reason}. Existing plugin files may still work; do not reinstall automatically. ` +
+      'If memory tools fail, run: npx claude-mem@latest doctor'
+  );
+}
+
 try {
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8'));
   const markerPath = join(ROOT, '.install-version');
   if (!existsSync(markerPath)) {
-    emitUpgradeHint('claude-mem: runtime not yet set up - run: npx claude-mem@latest install');
+    emitRepairHint('install marker is missing');
     process.exit(0);
   }
   const markerVersion = readInstallMarkerVersion(markerPath);
   if (!markerVersion) {
-    emitUpgradeHint('claude-mem: install marker unreadable - run: npx claude-mem@latest install');
+    emitRepairHint('install marker is unreadable');
   } else if (markerVersion !== pkg.version) {
-    emitUpgradeHint(`claude-mem: upgraded to v${pkg.version} - run: npx claude-mem@latest install`);
+    emitRepairHint(`plugin cache is v${pkg.version} but install marker is v${markerVersion}`);
   }
 } catch {
-  emitUpgradeHint('claude-mem: install marker unreadable - run: npx claude-mem@latest install');
+  emitRepairHint('install marker check failed');
 }
 process.exit(0);

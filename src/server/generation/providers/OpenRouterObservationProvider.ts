@@ -24,9 +24,10 @@ export interface OpenRouterObservationProviderOptions {
    * ends in `/chat/completions`). When unset, the default OpenRouter endpoint
    * is used — behavior unchanged. Examples: https://api.deepseek.com (DeepSeek),
    * http://localhost:1234/v1 (LM Studio), a custom gateway base.
-   */
+  */
   baseUrl?: string;
   maxOutputTokens?: number;
+  serviceTier?: string;
   siteUrl?: string;
   appName?: string;
   fetchImpl?: typeof fetch;
@@ -35,6 +36,7 @@ export interface OpenRouterObservationProviderOptions {
 interface OpenRouterResponse {
   choices?: Array<{ message?: { content?: string } }>;
   usage?: { total_tokens?: number };
+  service_tier?: string;
   error?: { code?: string | number; message?: string };
 }
 
@@ -44,6 +46,7 @@ export class OpenRouterObservationProvider implements ServerGenerationProvider {
   private readonly model: string;
   private readonly apiUrl: string;
   private readonly maxOutputTokens: number;
+  private readonly serviceTier: string;
   private readonly siteUrl: string;
   private readonly appName: string;
   private readonly fetchImpl: typeof fetch;
@@ -60,6 +63,7 @@ export class OpenRouterObservationProvider implements ServerGenerationProvider {
     this.model = options.model ?? DEFAULT_MODEL;
     this.apiUrl = resolveOpenRouterChatCompletionsUrl(options.baseUrl);
     this.maxOutputTokens = options.maxOutputTokens ?? 4096;
+    this.serviceTier = options.serviceTier?.trim() ?? '';
     this.siteUrl = options.siteUrl ?? 'https://github.com/thedotmack/claude-mem';
     this.appName = options.appName ?? 'claude-mem';
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -80,6 +84,16 @@ export class OpenRouterObservationProvider implements ServerGenerationProvider {
 
     let response: Response;
     try {
+      const requestBody: Record<string, unknown> = {
+        model: this.model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: this.maxOutputTokens,
+      };
+      if (this.serviceTier) {
+        requestBody.service_tier = this.serviceTier;
+      }
+
       response = await this.fetchImpl(this.apiUrl, {
         method: 'POST',
         headers: {
@@ -88,12 +102,7 @@ export class OpenRouterObservationProvider implements ServerGenerationProvider {
           'X-Title': this.appName,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3,
-          max_tokens: this.maxOutputTokens,
-        }),
+        body: JSON.stringify(requestBody),
         signal,
       });
     } catch (networkError) {

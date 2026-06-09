@@ -901,9 +901,21 @@ async function main() {
         process.exit(1);
       }
 
-      const workerStartResult = await ensureWorkerStarted(port);
-      if (workerStartResult === 'dead') {
-        logger.warn('SYSTEM', 'Worker failed to start before hook, handler will proceed gracefully');
+      let shouldStartWorker = true;
+      try {
+        const { resolveRuntimeContext } = await import('./hooks/runtime-selector.js');
+        shouldStartWorker = resolveRuntimeContext().runtime !== 'server-beta';
+      } catch (error) {
+        logger.warn('SYSTEM', 'Runtime selection failed before hook; falling back to worker start', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      if (shouldStartWorker) {
+        const workerStartResult = await ensureWorkerStarted(port);
+        if (workerStartResult === 'dead') {
+          logger.warn('SYSTEM', 'Worker failed to start before hook, handler will proceed gracefully');
+        }
       }
 
       const { hookCommand } = await import('../cli/hook-command.js');

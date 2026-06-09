@@ -19,6 +19,7 @@ import { ServerV1PostgresRoutes } from '../routes/v1/ServerV1PostgresRoutes.js';
 import { SessionsObservationsAdapter } from '../compat/SessionsObservationsAdapter.js';
 import { SessionsSummarizeAdapter } from '../compat/SessionsSummarizeAdapter.js';
 import { ActiveServerBetaQueueManager } from './ActiveServerBetaQueueManager.js';
+import { ServerBetaViewerApiRoutes } from './ServerBetaViewerApiRoutes.js';
 import { ServerViewerRoutes } from './ServerViewerRoutes.js';
 import type { ServerBetaServiceGraph, ServerBetaQueueLaneMetric } from './types.js';
 
@@ -204,11 +205,14 @@ export class ServerBetaService {
       authMode: compatAuthMode,
     }));
 
+    // The bundled React viewer still calls legacy worker `/api/*` routes.
+    // Adapt those calls to the canonical Postgres server-beta data model
+    // before mounting static assets.
+    server.registerRoutes(new ServerBetaViewerApiRoutes(this.graph));
+
     // #2552 — mount the Viewer UI static handler so the viewer loads on the
-    // server runtime. Registered AFTER the /v1 and compat API routes so the
-    // viewer's own API calls resolve against those; express.static only
-    // matches existing files and the `/` GET only matches the root, so this
-    // never shadows an API route.
+    // server runtime. Registered AFTER the /v1, compat, and viewer API routes
+    // so same-origin API calls resolve before the static/fallback handlers.
     server.registerRoutes(new ServerViewerRoutes());
 
     server.finalizeRoutes();
