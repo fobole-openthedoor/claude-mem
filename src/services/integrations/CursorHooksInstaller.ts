@@ -19,6 +19,7 @@ import {
   getWorkerServiceAbsolutePath,
   getBunAbsolutePath,
 } from './install-paths.js';
+import { loadFromFileOnce } from '../../shared/hook-settings.js';
 
 const execAsync = promisify(exec);
 
@@ -258,6 +259,14 @@ async function writeHooksJsonAndSetupProject(
     await setupProjectContext(targetDir, workspaceRoot);
   }
 
+  const runtime = loadFromFileOnce().CLAUDE_MEM_RUNTIME;
+  const nextStep = runtime === 'server-beta'
+    ? '  1. Restart Cursor to load the hooks and MCP config'
+    : '  1. Start claude-mem worker: claude-mem start';
+  const remainingSteps = runtime === 'server-beta'
+    ? '  2. Check Cursor Settings → Hooks tab and MCP settings to verify'
+    : '  2. Restart Cursor to load the hooks\n  3. Check Cursor Settings → Hooks tab to verify';
+
   console.log(`
 Installation complete!
 
@@ -265,9 +274,8 @@ Hooks installed to: ${targetDir}/hooks.json
 Using unified CLI: bun worker-service.cjs hook cursor <command>
 
 Next steps:
-  1. Start claude-mem worker: claude-mem start
-  2. Restart Cursor to load the hooks
-  3. Check Cursor Settings → Hooks tab to verify
+${nextStep}
+${remainingSteps}
 
 Context Injection:
   Context from past sessions is stored in .cursor/rules/claude-mem-context.mdc
@@ -515,6 +523,11 @@ export async function handleCursorCommand(subcommand: string, args: string[]): P
       return installCursorHooks(target);
     }
 
+    case 'mcp': {
+      const target = (args[0] || 'project') as CursorInstallTarget;
+      return configureCursorMcp(target);
+    }
+
     case 'uninstall': {
       const target = (args[0] || 'project') as CursorInstallTarget;
       return uninstallCursorHooks(target);
@@ -541,6 +554,9 @@ Commands:
   install [target]    Install Cursor hooks
                       target: project (default), user, or enterprise
 
+  mcp [target]        Configure Cursor MCP
+                      target: project (default) or user
+
   uninstall [target]  Remove Cursor hooks
                       target: project (default), user, or enterprise
 
@@ -550,6 +566,7 @@ Examples:
   npm run cursor:setup                   # Interactive wizard (recommended)
   npm run cursor:install                 # Install for current project
   claude-mem cursor install user         # Install globally for user
+  claude-mem cursor mcp user             # Configure global Cursor MCP
   claude-mem cursor uninstall            # Remove from current project
   claude-mem cursor status               # Check if hooks are installed
 
