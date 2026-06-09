@@ -628,6 +628,18 @@ function runServerBetaServiceCli(command: string, extraArgs: string[] = []): voi
   });
 }
 
+async function isServerBetaRuntimeSelected(): Promise<boolean> {
+  try {
+    const { selectRuntime } = await import('./hooks/runtime-selector.js');
+    return selectRuntime() === 'server-beta';
+  } catch (error) {
+    logger.warn('SYSTEM', 'Runtime selection failed before worker start; falling back to worker runtime', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
 function parseServerApiKeyOptions(args: string[]): Record<string, string> {
   const options: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {
@@ -761,6 +773,9 @@ async function main() {
 
   switch (command) {
     case 'start': {
+      if (await isServerBetaRuntimeSelected()) {
+        exitWithStatus('ready');
+      }
       const result = await ensureWorkerStarted(port);
       if (result === 'dead') {
         exitWithStatus('error', 'Failed to start worker');
@@ -901,15 +916,7 @@ async function main() {
         process.exit(1);
       }
 
-      let shouldStartWorker = true;
-      try {
-        const { resolveRuntimeContext } = await import('./hooks/runtime-selector.js');
-        shouldStartWorker = resolveRuntimeContext().runtime !== 'server-beta';
-      } catch (error) {
-        logger.warn('SYSTEM', 'Runtime selection failed before hook; falling back to worker start', {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
+      const shouldStartWorker = !(await isServerBetaRuntimeSelected());
 
       if (shouldStartWorker) {
         const workerStartResult = await ensureWorkerStarted(port);
