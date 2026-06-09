@@ -69,6 +69,26 @@ export interface ServerBetaStartSessionRequest {
   metadata?: Record<string, unknown>;
 }
 
+export interface ServerBetaProject {
+  id: string;
+  teamId: string;
+  name: string;
+  metadata: Record<string, unknown>;
+  createdAtEpoch: number;
+  updatedAtEpoch: number;
+}
+
+export interface ServerBetaResolveProjectRequest {
+  name: string;
+  rootPath?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ServerBetaResolveProjectResponse {
+  project: ServerBetaProject;
+  created: boolean;
+}
+
 export interface ServerBetaStartSessionResponse {
   session: {
     id: string;
@@ -207,6 +227,14 @@ export class ServerBetaClient {
     return this.request<ServerBetaStartSessionResponse>('POST', '/v1/sessions/start', body);
   }
 
+  async resolveProject(input: ServerBetaResolveProjectRequest): Promise<ServerBetaResolveProjectResponse> {
+    return this.request<ServerBetaResolveProjectResponse>(
+      'POST',
+      '/v1/projects/resolve',
+      this.buildResolveProjectPayload(input),
+    );
+  }
+
   async recordEvent(input: ServerBetaRecordEventRequest): Promise<ServerBetaRecordEventResponse> {
     const body = this.buildEventPayload(input);
     const path = input.generate === false ? '/v1/events?generate=false' : '/v1/events';
@@ -307,6 +335,14 @@ export class ServerBetaClient {
       ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
       ...(input.agentType !== undefined ? { agentType: input.agentType } : {}),
       ...(input.platformSource !== undefined ? { platformSource: input.platformSource } : {}),
+      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+    };
+  }
+
+  buildResolveProjectPayload(input: ServerBetaResolveProjectRequest): Record<string, unknown> {
+    return {
+      name: input.name,
+      ...(input.rootPath ? { rootPath: input.rootPath } : {}),
       ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     };
   }

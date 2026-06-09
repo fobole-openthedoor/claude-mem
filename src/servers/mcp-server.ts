@@ -35,9 +35,11 @@ import {
 import {
   selectRuntime,
   buildServerBetaContext,
+  resolveServerBetaProjectId,
   type SelectedRuntime,
   type ServerBetaRuntimeContext,
 } from '../services/hooks/runtime-selector.js';
+import { getProjectContext } from '../utils/project-name.js';
 
 let mcpServerDirResolutionFailed = false;
 const mcpServerDir = (() => {
@@ -198,7 +200,7 @@ function resolveServerBetaToolContext(): ServerBetaResolution | null {
     return {
       runtime: 'server-beta',
       available: false,
-      reason: 'server-beta is selected but configuration is incomplete (missing url, api key, or project id)',
+      reason: 'server-beta is selected but configuration is incomplete (missing url or api key)',
     };
   }
   return { ...ctx, available: true };
@@ -246,6 +248,22 @@ function requireServerBetaForObservationTool(toolName: string): ServerBetaAvaila
   return resolution;
 }
 
+async function resolveObservationToolProjectId(
+  ctx: ServerBetaAvailable,
+  explicitProjectId?: string,
+): Promise<string> {
+  if (explicitProjectId && explicitProjectId.trim().length > 0) {
+    return explicitProjectId.trim();
+  }
+  const cwd = process.cwd();
+  const projectContext = getProjectContext(cwd);
+  return resolveServerBetaProjectId(ctx, {
+    projectName: projectContext.primary,
+    rootPath: cwd,
+    metadata: { projectContext, source: 'mcp' },
+  });
+}
+
 interface ObservationAddArgs {
   projectId?: string;
   serverSessionId?: string | null;
@@ -262,7 +280,7 @@ async function handleObservationAdd(
     if (typeof args?.content !== 'string' || args.content.trim().length === 0) {
       throw new Error('observation_add: "content" is required');
     }
-    const projectId = args.projectId && args.projectId.trim().length > 0 ? args.projectId : ctx.projectId;
+    const projectId = await resolveObservationToolProjectId(ctx, args.projectId);
     const request: ServerBetaAddObservationRequest = {
       projectId,
       content: args.content,
@@ -297,7 +315,7 @@ async function handleObservationRecordEvent(
     if (typeof args?.eventType !== 'string' || args.eventType.trim().length === 0) {
       throw new Error('observation_record_event: "eventType" is required');
     }
-    const projectId = args.projectId && args.projectId.trim().length > 0 ? args.projectId : ctx.projectId;
+    const projectId = await resolveObservationToolProjectId(ctx, args.projectId);
     const request: ServerBetaRecordEventRequest = {
       projectId,
       sourceType: args.sourceType ?? 'api',
@@ -330,7 +348,7 @@ async function handleObservationSearch(
     if (typeof args?.query !== 'string' || args.query.trim().length === 0) {
       throw new Error('observation_search: "query" is required');
     }
-    const projectId = args.projectId && args.projectId.trim().length > 0 ? args.projectId : ctx.projectId;
+    const projectId = await resolveObservationToolProjectId(ctx, args.projectId);
     const request: ServerBetaSearchObservationsRequest = {
       projectId,
       query: args.query,
@@ -357,7 +375,7 @@ async function handleObservationContext(
     if (typeof args?.query !== 'string' || args.query.trim().length === 0) {
       throw new Error('observation_context: "query" is required');
     }
-    const projectId = args.projectId && args.projectId.trim().length > 0 ? args.projectId : ctx.projectId;
+    const projectId = await resolveObservationToolProjectId(ctx, args.projectId);
     const request: ServerBetaContextObservationsRequest = {
       projectId,
       query: args.query,
@@ -524,11 +542,11 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   // MCP clients keep working without rewrites. (Plan line 753.)
   {
     name: 'observation_add',
-    description: 'Insert a manual observation directly into server-beta storage. Calls /v1/memories — does NOT enqueue generation. Server-beta runtime only. Params: content (required), projectId (optional, falls back to settings), serverSessionId, kind, metadata.',
+    description: 'Insert a manual observation directly into server-beta storage. Calls /v1/memories — does NOT enqueue generation. Server-beta runtime only. Params: content (required), projectId (optional, auto-resolves from cwd), serverSessionId, kind, metadata.',
     inputSchema: {
       type: 'object',
       properties: {
-        projectId: { type: 'string', description: 'Project id (falls back to CLAUDE_MEM_SERVER_BETA_PROJECT_ID)' },
+        projectId: { type: 'string', description: 'Project id (optional; when omitted, auto-resolves from the current working directory)' },
         serverSessionId: { type: 'string', description: 'Optional server_session_id to attach the observation to' },
         kind: { type: 'string', description: 'Observation kind (default: manual)' },
         content: { type: 'string', description: 'Observation content (required)' },
@@ -609,18 +627,18 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   // there is one code path for MCP write/read against server-beta.
   {
     name: 'memory_add',
-    description: 'Compatibility alias for observation_add. Same behavior; same schema modulo the legacy field names.',
+    description: 'Compatibility alias for observation_add. Same behavior; projectId is optional and auto-resolves from cwd when omitted.',
     inputSchema: {
       type: 'object',
       properties: {
-        projectId: { type: 'string' },
+        projectId: { type: 'string', description: 'Project id (optional; auto-resolves from cwd when omitted)' },
         kind: { type: 'string' },
         content: { type: 'string' },
         narrative: { type: 'string', description: 'Legacy alias for content; mapped to content if content is missing' },
         title: { type: 'string', description: 'Legacy field; appended to metadata.title' },
         metadata: { type: 'object', additionalProperties: true },
       },
-      required: ['projectId'],
+      required: [],
       additionalProperties: true,
     },
     handler: async (args: any) => {
@@ -640,30 +658,30 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'memory_search',
-    description: 'Compatibility alias for observation_search. Same FTS path; same /v1/search REST endpoint.',
+    description: 'Compatibility alias for observation_search. Same FTS path; same /v1/search REST endpoint. projectId is optional and auto-resolves from cwd when omitted.',
     inputSchema: {
       type: 'object',
       properties: {
-        projectId: { type: 'string' },
+        projectId: { type: 'string', description: 'Project id (optional; auto-resolves from cwd when omitted)' },
         query: { type: 'string' },
         limit: { type: 'number' },
       },
-      required: ['projectId', 'query'],
+      required: ['query'],
       additionalProperties: true,
     },
     handler: async (args: any) => handleObservationSearch(args ?? {}),
   },
   {
     name: 'memory_context',
-    description: 'Compatibility alias for observation_context. Same /v1/context REST endpoint.',
+    description: 'Compatibility alias for observation_context. Same /v1/context REST endpoint. projectId is optional and auto-resolves from cwd when omitted.',
     inputSchema: {
       type: 'object',
       properties: {
-        projectId: { type: 'string' },
+        projectId: { type: 'string', description: 'Project id (optional; auto-resolves from cwd when omitted)' },
         query: { type: 'string' },
         limit: { type: 'number' },
       },
-      required: ['projectId', 'query'],
+      required: ['query'],
       additionalProperties: true,
     },
     handler: async (args: any) => handleObservationContext(args ?? {}),

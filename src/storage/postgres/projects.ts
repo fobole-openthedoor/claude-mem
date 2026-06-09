@@ -51,6 +51,34 @@ export class PostgresProjectsRepository {
     );
     return row ? mapProjectRow(row) : null;
   }
+
+  async getByNameForTeam(name: string, teamId: string): Promise<PostgresProject | null> {
+    const row = await queryOne<ProjectRow>(
+      this.client,
+      `
+        SELECT *
+        FROM projects
+        WHERE name = $1 AND team_id = $2
+        ORDER BY created_at ASC
+        LIMIT 1
+      `,
+      [name, teamId]
+    );
+    return row ? mapProjectRow(row) : null;
+  }
+
+  async listByTeam(teamId: string): Promise<PostgresProject[]> {
+    const result = await this.client.query<ProjectRow>(
+      `
+        SELECT *
+        FROM projects
+        WHERE team_id = $1
+        ORDER BY name ASC, created_at ASC
+      `,
+      [teamId]
+    );
+    return result.rows.map(mapProjectRow);
+  }
 }
 
 function mapProjectRow(row: ProjectRow): PostgresProject {

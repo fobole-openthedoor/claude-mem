@@ -15,7 +15,7 @@ import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { logger } from '../../utils/logger.js';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { readStaleMarker } from '../../shared/oauth-token.js';
-import { resolveRuntimeContext, logServerBetaFallback } from '../../services/hooks/runtime-selector.js';
+import { resolveRuntimeContext, logServerBetaFallback, resolveServerBetaProjectId } from '../../services/hooks/runtime-selector.js';
 
 export const contextHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
@@ -124,8 +124,13 @@ async function buildServerBetaContext(
   projectContext: ReturnType<typeof getProjectContext>,
   _cwd: string,
 ): Promise<string> {
+  const projectId = await resolveServerBetaProjectId(runtime, {
+    projectName: projectContext.primary,
+    rootPath: _cwd,
+    metadata: { projectContext },
+  });
   const url = new URL('/api/context/preview', runtime.serverBaseUrl);
-  url.searchParams.set('projectId', runtime.projectId);
+  url.searchParams.set('projectId', projectId);
   const response = await fetch(url, {
     signal: AbortSignal.timeout(5000),
   });

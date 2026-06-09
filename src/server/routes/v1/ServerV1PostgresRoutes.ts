@@ -17,6 +17,7 @@ import {
 } from '../../../storage/postgres/generation-jobs.js';
 import { PostgresAuthRepository } from '../../../storage/postgres/auth.js';
 import { PostgresObservationRepository } from '../../../storage/postgres/observations.js';
+import { PostgresProjectsRepository, type PostgresProject } from '../../../storage/postgres/projects.js';
 import { logger } from '../../../utils/logger.js';
 import { requirePostgresServerAuth } from '../../middleware/postgres-auth.js';
 import { requestIdMiddleware } from '../../middleware/request-id.js';
@@ -53,6 +54,12 @@ interface BatchPreValidationFailure {
 const EVENT_QUERY_SCHEMA = z.object({
   generate: z.union([z.literal('true'), z.literal('false')]).optional(),
   wait: z.union([z.literal('true'), z.literal('false')]).optional(),
+});
+
+const ResolveProjectSchema = z.object({
+  name: z.string().min(1),
+  rootPath: z.string().min(1).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 // `?wait=true` polls the outbox row until it reaches a terminal status
@@ -147,6 +154,53 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       allowLocalDevBypass: this.options.allowLocalDevBypass,
       requiredScopes: ['memories:read'],
     });
+
+    app.get('/v1/projects', readAuth, this.asyncHandler(async (req, res) => {
+      const teamId = this.requireTeamId(req, res);
+      if (!teamId) return;
+      const repo = new PostgresProjectsRepository(this.options.pool);
+      const projectId = req.authContext?.projectId ?? null;
+      const projects = projectId
+        ? [await repo.getByIdForTeam(projectId, teamId)].filter((project): project is PostgresProject => project !== null)
+        : await repo.listByTeam(teamId);
+      await this.auditRead(req, 'projects.list', null, null, { count: projects.length });
+      res.status(200).json({ projects: projects.map(serializeProject) });
+    }));
+
+    app.post('/v1/projects/resolve', writeAuth, this.handleCreate(ResolveProjectSchema, async (req, res, body) => {
+      const teamId = this.requireTeamId(req, res);
+      if (!teamId) return;
+      if (req.authContext?.projectId) {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'Project-scoped API keys cannot resolve or create projects',
+        });
+        return;
+      }
+
+      const name = body.name.trim();
+      const repo = new PostgresProjectsRepository(this.options.pool);
+      let project = await repo.getByNameForTeam(name, teamId);
+      let created = false;
+      if (!project) {
+        project = await repo.create({
+          teamId,
+          name,
+          metadata: {
+            source: 'server-beta-project-resolve',
+            ...(body.rootPath ? { rootPath: body.rootPath } : {}),
+            ...(body.metadata ?? {}),
+          },
+        });
+        created = true;
+      }
+
+      await this.auditWrite(req, created ? 'project.create' : 'project.resolve', project.id, project.id, {
+        name,
+        rootPath: body.rootPath ?? null,
+      });
+      res.status(created ? 201 : 200).json({ project: serializeProject(project), created });
+    }));
 
     // POST /v1/events — single event with optional async generation
     app.post('/v1/events', writeAuth, this.asyncHandler(async (req, res) => {
@@ -1716,6 +1770,17 @@ function serializeObservation(observation: {
     metadata: observation.metadata,
     createdAtEpoch: observation.createdAtEpoch,
     updatedAtEpoch: observation.updatedAtEpoch,
+  };
+}
+
+function serializeProject(project: PostgresProject): Record<string, unknown> {
+  return {
+    id: project.id,
+    teamId: project.teamId,
+    name: project.name,
+    metadata: project.metadata,
+    createdAtEpoch: project.createdAtEpoch,
+    updatedAtEpoch: project.updatedAtEpoch,
   };
 }
 

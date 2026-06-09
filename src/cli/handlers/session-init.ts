@@ -11,7 +11,7 @@ import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { isInternalProtocolPayload } from '../../utils/tag-stripping.js';
-import { resolveRuntimeContext, logServerBetaFallback } from '../../services/hooks/runtime-selector.js';
+import { resolveRuntimeContext, logServerBetaFallback, resolveServerBetaProjectId } from '../../services/hooks/runtime-selector.js';
 import { isServerBetaClientError } from '../../services/hooks/server-beta-client.js';
 
 interface SessionInitResponse {
@@ -57,8 +57,13 @@ export const sessionInitHandler: EventHandler = {
     const runtime = resolveRuntimeContext();
     if (runtime.runtime === 'server-beta') {
       try {
+        const projectId = await resolveServerBetaProjectId(runtime, {
+          projectName: project,
+          rootPath: cwd,
+          metadata: { projectContext: getProjectContext(cwd) },
+        });
         await runtime.client.startSession({
-          projectId: runtime.projectId,
+          projectId,
           externalSessionId: sessionId,
           contentSessionId: sessionId,
           agentId: input.agentId ?? null,

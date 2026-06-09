@@ -10,8 +10,9 @@ import { stripMemoryTagsFromPrompt } from '../../utils/tag-stripping.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
-import { resolveRuntimeContext, logServerBetaFallback } from '../../services/hooks/runtime-selector.js';
+import { resolveRuntimeContext, logServerBetaFallback, resolveServerBetaProjectId } from '../../services/hooks/runtime-selector.js';
 import { isServerBetaClientError } from '../../services/hooks/server-beta-client.js';
+import { getProjectContext } from '../../utils/project-name.js';
 
 export const summarizeHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
@@ -74,15 +75,22 @@ export const summarizeHandler: EventHandler = {
     });
 
     const platformSource = normalizePlatformSource(input.platform);
+    const cwd = input.cwd ?? process.cwd();
+    const projectContext = getProjectContext(cwd);
 
     const runtime = resolveRuntimeContext();
     if (runtime.runtime === 'server-beta') {
       try {
+        const projectId = await resolveServerBetaProjectId(runtime, {
+          projectName: projectContext.primary,
+          rootPath: cwd,
+          metadata: { projectContext },
+        });
         // Resolve the server_session_id idempotently. /v1/sessions/start is
         // idempotent on (projectId, externalSessionId) and returns the
         // existing row when present.
         const startResult = await runtime.client.startSession({
-          projectId: runtime.projectId,
+          projectId,
           externalSessionId: sessionId,
           contentSessionId: sessionId,
           platformSource,
@@ -91,7 +99,7 @@ export const summarizeHandler: EventHandler = {
         // Record the last assistant message as an event before closing the
         // session so it lands in the generation pipeline.
         await runtime.client.recordEvent({
-          projectId: runtime.projectId,
+          projectId,
           serverSessionId,
           contentSessionId: sessionId,
           sourceType: 'hook',

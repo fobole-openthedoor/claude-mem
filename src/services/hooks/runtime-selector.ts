@@ -19,7 +19,7 @@ export type SelectedRuntime = 'worker' | 'server-beta';
 export interface ServerBetaRuntimeContext {
   runtime: 'server-beta';
   client: ServerBetaClient;
-  projectId: string;
+  projectId: string | null;
   serverBaseUrl: string;
 }
 
@@ -40,7 +40,7 @@ export function buildServerBetaContext(): ServerBetaRuntimeContext | null {
   const settings = loadFromFileOnce();
   const serverBaseUrl = (settings.CLAUDE_MEM_SERVER_BETA_URL ?? '').trim();
   const apiKey = (settings.CLAUDE_MEM_SERVER_BETA_API_KEY ?? '').trim();
-  const projectId = (settings.CLAUDE_MEM_SERVER_BETA_PROJECT_ID ?? '').trim();
+  const projectId = (settings.CLAUDE_MEM_SERVER_BETA_PROJECT_ID ?? '').trim() || null;
 
   if (!serverBaseUrl) {
     logger.warn('HOOK', '[server-beta-fallback] reason=missing_base_url');
@@ -50,11 +50,6 @@ export function buildServerBetaContext(): ServerBetaRuntimeContext | null {
     logger.warn('HOOK', '[server-beta-fallback] reason=missing_api_key');
     return null;
   }
-  if (!projectId) {
-    logger.warn('HOOK', '[server-beta-fallback] reason=missing_project_id');
-    return null;
-  }
-
   const config: ServerBetaClientConfig = {
     serverBaseUrl,
     apiKey,
@@ -80,4 +75,23 @@ export function resolveRuntimeContext(): RuntimeContext {
 
 export function logServerBetaFallback(reason: string, details?: Record<string, unknown>): void {
   logger.warn('HOOK', `[server-beta-fallback] reason=${reason}`, details ?? {});
+}
+
+export async function resolveServerBetaProjectId(
+  runtime: ServerBetaRuntimeContext,
+  input: {
+    projectName: string;
+    rootPath?: string | null;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<string> {
+  if (runtime.projectId) {
+    return runtime.projectId;
+  }
+  const project = await runtime.client.resolveProject({
+    name: input.projectName,
+    rootPath: input.rootPath ?? null,
+    metadata: input.metadata,
+  });
+  return project.project.id;
 }
