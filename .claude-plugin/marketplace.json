@@ -1,11 +1,11 @@
 {
-  "name": "thedotmack",
+  "name": "claude-mem-beefsms",
   "owner": {
-    "name": "Alex Newman"
+    "name": "fobole-openthedoor"
   },
   "metadata": {
-    "description": "Plugins by Alex Newman (thedotmack)",
-    "homepage": "https://github.com/thedotmack/claude-mem"
+    "description": "claude-mem fork with server-beta compatibility fixes for the Beefsms memory stack",
+    "homepage": "https://github.com/fobole-openthedoor/claude-mem"
   },
   "plugins": [
     {

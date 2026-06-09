@@ -1,7 +1,7 @@
 {
-  "name": "claude-mem-local",
+  "name": "claude-mem-beefsms",
   "interface": {
-    "displayName": "claude-mem (local)"
+    "displayName": "claude-mem (beefsms)"
   },
   "plugins": [
     {
